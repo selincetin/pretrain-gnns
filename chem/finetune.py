@@ -12,9 +12,9 @@ from tqdm import tqdm
 import numpy as np
 
 from model import GNN, GNN_graphpred
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, mean_absolute_error
 
-from splitters import scaffold_split
+from splitters import scaffold_split, random_scaffold_split, random_split
 import pandas as pd
 
 import os
@@ -27,56 +27,93 @@ criterion = nn.BCEWithLogitsLoss(reduction = "none")
 def train(args, model, device, loader, optimizer):
     model.train()
 
-    for step, batch in enumerate(tqdm(loader, desc="Iteration")):
-        batch = batch.to(device)
-        pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
-        y = batch.y.view(pred.shape).to(torch.float64)
+    if args.dataset != "esol":
+        for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+            batch = batch.to(device)
+            pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+            y = batch.y.view(pred.shape).to(torch.float64)
 
-        #Whether y is non-null or not.
-        is_valid = y**2 > 0
-        #Loss matrix
-        loss_mat = criterion(pred.double(), (y+1)/2)
-        #loss matrix after removing null target
-        loss_mat = torch.where(is_valid, loss_mat, torch.zeros(loss_mat.shape).to(loss_mat.device).to(loss_mat.dtype))
-            
-        optimizer.zero_grad()
-        loss = torch.sum(loss_mat)/torch.sum(is_valid)
-        loss.backward()
+            #Whether y is non-null or not.
+            is_valid = y**2 > 0
+            #Loss matrix
+            loss_mat = criterion(pred.double(), (y+1)/2)
+            #loss matrix after removing null target
+            loss_mat = torch.where(is_valid, loss_mat, torch.zeros(loss_mat.shape).to(loss_mat.device).to(loss_mat.dtype))
+                
+            optimizer.zero_grad()
+            loss = torch.sum(loss_mat)/torch.sum(is_valid)
+            loss.backward()
 
-        optimizer.step()
+            optimizer.step()
+    else:
+        criterion = nn.SmoothL1Loss(reduction = "none")
+        for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+            batch = batch.to(device)
+            pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+            y = batch.y.view(pred.shape).to(torch.float64)
+
+            #Loss matrix
+            loss_mat = criterion(pred.double(), y)
+                
+            optimizer.zero_grad()
+            loss = torch.mean(loss_mat)
+            #print(loss)
+            loss.backward()
+
+            optimizer.step()
 
 
 def eval(args, model, device, loader):
-    model.eval()
-    y_true = []
-    y_scores = []
+    if args.dataset != "esol":
+        model.eval()
+        y_true = []
+        y_scores = []
 
-    for step, batch in enumerate(tqdm(loader, desc="Iteration")):
-        batch = batch.to(device)
+        for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+            batch = batch.to(device)
 
-        with torch.no_grad():
-            pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+            with torch.no_grad():
+                pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
 
-        y_true.append(batch.y.view(pred.shape))
-        y_scores.append(pred)
+            y_true.append(batch.y.view(pred.shape))
+            y_scores.append(pred)
 
-    y_true = torch.cat(y_true, dim = 0).cpu().numpy()
-    y_scores = torch.cat(y_scores, dim = 0).cpu().numpy()
+        y_true = torch.cat(y_true, dim = 0).cpu().numpy()
+        y_scores = torch.cat(y_scores, dim = 0).cpu().numpy()
 
-    roc_list = []
-    for i in range(y_true.shape[1]):
-        #AUC is only defined when there is at least one positive data.
-        if np.sum(y_true[:,i] == 1) > 0 and np.sum(y_true[:,i] == -1) > 0:
-            is_valid = y_true[:,i]**2 > 0
-            roc_list.append(roc_auc_score((y_true[is_valid,i] + 1)/2, y_scores[is_valid,i]))
+        roc_list = []
+        for i in range(y_true.shape[1]):
+            #AUC is only defined when there is at least one positive data.
+            if np.sum(y_true[:,i] == 1) > 0 and np.sum(y_true[:,i] == -1) > 0:
+                is_valid = y_true[:,i]**2 > 0
+                roc_list.append(roc_auc_score((y_true[is_valid,i] + 1)/2, y_scores[is_valid,i]))
 
-    if len(roc_list) < y_true.shape[1]:
-        print("Some target is missing!")
-        print("Missing ratio: %f" %(1 - float(len(roc_list))/y_true.shape[1]))
+        if len(roc_list) < y_true.shape[1]:
+            print("Some target is missing!")
+            print("Missing ratio: %f" %(1 - float(len(roc_list))/y_true.shape[1]))
 
-    return sum(roc_list)/len(roc_list) #y_true.shape[1]
+        return sum(roc_list)/len(roc_list) #y_true.shape[1]
+    else:
+        model.eval()
+        y_true = []
+        y_scores = []
 
+        for step, batch in enumerate(tqdm(loader, desc="Iteration")):
+            batch = batch.to(device)
 
+            with torch.no_grad():
+                pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
+
+            y_true.append(batch.y.view(pred.shape))
+            y_scores.append(pred)
+
+        y_true = torch.cat(y_true, dim = 0).cpu().numpy()
+        y_scores = torch.cat(y_scores, dim = 0).cpu().numpy()
+        #################
+        #print(y_true)
+        #print(y_scores) #should be large x 1 
+        mae = mean_absolute_error(y_true, y_scores)
+        return mae
 
 def main():
     # Training settings
@@ -140,6 +177,9 @@ def main():
         num_tasks = 27
     elif args.dataset == "clintox":
         num_tasks = 2
+    #my addition - esol
+    elif args.dataset == "esol":
+        num_tasks = 1
     else:
         raise ValueError("Invalid dataset name.")
 
@@ -227,6 +267,10 @@ def main():
 
     if not args.filename == "":
         writer.close()
+
+    #my addition - save model 
+    if not args.filename == "":
+        torch.save(model.state_dict(), args.filename + ".pth")
 
 if __name__ == "__main__":
     main()

@@ -353,6 +353,7 @@ class GNN_graphpred(torch.nn.Module):
 
     def from_pretrained(self, model_file):
         #self.gnn = GNN(self.num_layer, self.emb_dim, JK = self.JK, drop_ratio = self.drop_ratio)
+        print(torch.cuda.is_available())
         self.gnn.load_state_dict(torch.load(model_file))
 
     def forward(self, *argv):
