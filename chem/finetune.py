@@ -27,7 +27,7 @@ criterion = nn.BCEWithLogitsLoss(reduction = "none")
 def train(args, model, device, loader, optimizer):
     model.train()
 
-    if args.dataset != "esol":
+    if args.dataset != "esol" and args.dataset != "bio_mp":
         for step, batch in enumerate(tqdm(loader, desc="Iteration")):
             batch = batch.to(device)
             pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
@@ -64,7 +64,7 @@ def train(args, model, device, loader, optimizer):
 
 
 def eval(args, model, device, loader):
-    if args.dataset != "esol":
+    if args.dataset != "esol" and args.dataset != "bio_mp":
         model.eval()
         y_true = []
         y_scores = []
@@ -179,6 +179,8 @@ def main():
         num_tasks = 2
     #my addition - esol
     elif args.dataset == "esol":
+        num_tasks = 1
+    elif args.dataset == "bio_mp":
         num_tasks = 1
     else:
         raise ValueError("Invalid dataset name.")

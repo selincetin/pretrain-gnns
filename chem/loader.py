@@ -363,7 +363,8 @@ class MoleculeDataset(InMemoryDataset):
             # 'dataset/pcba/processed/smiles.csv',
             'dataset/sider',
             'dataset/tox21',
-            'dataset/toxcast'
+            'dataset/toxcast',
+            'dataset/bio_mp'
             ]
 
             downstream_inchi_set = set()
@@ -717,6 +718,27 @@ class MoleculeDataset(InMemoryDataset):
                     data.y = torch.tensor([labels[i]])
                     data_list.append(data)
                     data_smiles_list.append(smiles_list[i])
+
+        elif self.dataset == 'bio_mp':
+            smiles_list, rdkit_mol_objs, labels = \
+                _load_bio_mp_dataset(self.raw_paths[0])
+            print(smiles_list)
+            print(rdkit_mol_objs)
+            print(labels)
+            for i in range(len(smiles_list)):
+                print(i)
+                rdkit_mol = rdkit_mol_objs[i]
+                # # convert aromatic bonds to double bonds
+                # Chem.SanitizeMol(rdkit_mol,
+                #                  sanitizeOps=Chem.SanitizeFlags.SANITIZE_KEKULIZE)
+                data = mol_to_graph_data_obj_simple(rdkit_mol)
+                # manually add mol id
+                data.id = torch.tensor(
+                    [i])  # id here is the index of the mol in
+                # the dataset
+                data.y = torch.tensor([labels[i]])
+                data_list.append(data)
+                data_smiles_list.append(smiles_list[i])   
                     
 
         else:
@@ -1057,6 +1079,26 @@ def _load_esol_dataset(input_path):
     return smiles_list, rdkit_mol_objs_list, labels.values
 # input_path = 'dataset/esol/raw/delaney-processed.csv'
 # smiles_list, rdkit_mol_objs_list, labels = _load_esol_dataset(input_path)
+
+def _load_bio_mp_dataset(input_path):
+    """
+
+    :param input_path:
+    :return: list of smiles, list of rdkit mol obj, np.array containing the
+    labels (regression task)
+    """
+    input_df = pd.read_csv(input_path, sep=',')
+    print(input_df)
+    smiles_list = input_df['smiles']
+    print(type(smiles_list[2]))
+    labels = list(map(float, input_df['melt_point_C']))
+    print(labels)
+    rdkit_mol_objs_list = [AllChem.MolFromSmiles(s) for s in smiles_list]
+    
+    assert len(smiles_list) == len(rdkit_mol_objs_list)
+    assert len(smiles_list) == len(labels)
+    return smiles_list, rdkit_mol_objs_list, labels
+
 
 def _load_freesolv_dataset(input_path):
     """
