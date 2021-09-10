@@ -12,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 
 from model import GNN, GNN_graphpred
-from sklearn.metrics import roc_auc_score, mean_absolute_error
+from sklearn.metrics import roc_auc_score, mean_absolute_error, mean_squared_error, r2_score
 
 from splitters import scaffold_split, random_scaffold_split, random_split
 import pandas as pd
@@ -22,7 +22,8 @@ import shutil
 
 from tensorboardX import SummaryWriter
 
-criterion = nn.BCEWithLogitsLoss(reduction = "none")
+#criterion = nn.BCEWithLogitsLoss(reduction = "none")
+criterion = nn.SmoothL1Loss(reduction = "none")
 
 def train(args, model, device, loader, optimizer):
     model.train()
@@ -46,7 +47,6 @@ def train(args, model, device, loader, optimizer):
 
             optimizer.step()
     else:
-        criterion = nn.SmoothL1Loss(reduction = "none")
         for step, batch in enumerate(tqdm(loader, desc="Iteration")):
             batch = batch.to(device)
             pred = model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
@@ -63,7 +63,7 @@ def train(args, model, device, loader, optimizer):
             optimizer.step()
 
 
-def eval(args, model, device, loader):
+def eval(args, model, device, loader, epoch):
     if args.dataset != "esol" and args.dataset != "bio_mp":
         model.eval()
         y_true = []
@@ -112,6 +112,16 @@ def eval(args, model, device, loader):
         #################
         #print(y_true)
         #print(y_scores) #should be large x 1 
+
+        if epoch == args.epochs:
+            ys = np.concatenate((y_true, y_scores), axis=1)
+            #print(ys)
+            print("RMSE:")
+            print(mean_squared_error(y_true, y_scores, squared=False))
+            print("R2:")
+            print(r2_score(y_true, y_scores))
+            print("MAE:")
+            print(mean_absolute_error(y_true, y_scores))
         mae = mean_absolute_error(y_true, y_scores)
         return mae
 
@@ -247,12 +257,12 @@ def main():
 
         print("====Evaluation")
         if args.eval_train:
-            train_acc = eval(args, model, device, train_loader)
+            train_acc = eval(args, model, device, train_loader, epoch)
         else:
             print("omit the training accuracy computation")
             train_acc = 0
-        val_acc = eval(args, model, device, val_loader)
-        test_acc = eval(args, model, device, test_loader)
+        val_acc = eval(args, model, device, val_loader, epoch)
+        test_acc = eval(args, model, device, test_loader, epoch)
 
         print("train: %f val: %f test: %f" %(train_acc, val_acc, test_acc))
 
@@ -271,8 +281,8 @@ def main():
         writer.close()
 
     #my addition - save model 
-    if not args.filename == "":
-        torch.save(model.state_dict(), args.filename + ".pth")
+    #if not args.filename == "":
+    #    torch.save(model.state_dict(), args.filename + ".pth")
 
 if __name__ == "__main__":
     main()
